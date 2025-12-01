@@ -1,0 +1,21 @@
+FROM python:3.10-slim-bookworm
+
+# 1. Install system tools needed for dev (git, curl, process tools)
+RUN apt-get update && apt-get install -y \
+    apt-get install libgomp1 \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# 3. Configure uv for Docker usage
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# 4. Keep the container alive indefinitely so we can attach to it
+CMD ["tail", "-f", "/dev/null"]

@@ -1,0 +1,28 @@
+name: ts_docker_fastAPI
+channels:
+  - defaults
+dependencies:
+  - python=3.11.0
+  - ipython=8.20.0
+  - pip
+  - pip:
+      - black>=25.11.0
+      - datasetsforecast>=1.0.0
+      - ipykernel>=7.1.0
+      - isort>=7.0.0
+      - jupyterlab>=4.5.0
+      - jupyterlab-code-formatter>=3.0.2
+      - jupyterlab-rise>=0.43.1
+      - lightgbm>=4.6.0
+      - matplotlib>=3.10.7
+      - mlforecast>=1.0.2
+      - numba>=0.62.1
+      - numpy>=2.2.6
+      - pandas>=2.3.3
+      - plotly>=6.5.0
+      - scikit-learn>=1.7.2
+      - tqdm>=4.67.1
+      - window-ops>=0.0.15
+      - xgboost>=3.1.2
+      - optuna
+      - statsforecast==2.0.3

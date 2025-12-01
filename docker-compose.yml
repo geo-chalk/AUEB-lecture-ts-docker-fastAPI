@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  aueb_demo:
+    build:
+      context: .
+      dockerfile: setup/Dockerfile_Dev
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./notebooks:/app/notebooks
+      - ./src:/app/src
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./uv.lock:/app/uv.lock
+    ports:
+      - "8989:8989"
+      - "8081:8081"
+    command: "tail -F anything"

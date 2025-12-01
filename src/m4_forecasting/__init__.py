@@ -1,0 +1,1 @@
+LOGGER_NAME: str = "m4_forecasting"

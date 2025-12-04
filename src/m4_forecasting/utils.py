@@ -5,7 +5,7 @@ import sys
 import optuna
 
 from m4_forecasting import LOGGER_NAME
-from src.m4_forecasting.config import PipelineConfig
+from m4_forecasting.config import PipelineConfig
 
 
 def setup_logging(name: str = LOGGER_NAME) -> logging.Logger:
@@ -68,16 +68,41 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="M4 Forecasting Pipeline CLI")
 
     # Note: No default=... here.
-    parser.add_argument("--horizon", type=int, help="Forecast horizon in hours")
-    parser.add_argument("--group", type=str, choices=["Hourly", "Daily", "Weekly"], help="M4 Data Group")
-
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        help="Forecast horizon in hours. Defaults to 24."
+    )
+    parser.add_argument(
+        "--group",
+        type=str,
+        choices=["Hourly", "Daily", "Weekly"],
+        help="M4 Data Group"
+    )
     # For debug-series, we accept 0 to mean 'All Data'
-    parser.add_argument("--n-series-debug", type=int, dest="n_series_debug",
-                        help="Number of series (0 for all, default defined in Config)")
-
-    parser.add_argument("--n-trials", type=int, dest="n_trials", help="Optuna trials")
-    parser.add_argument("--n-windows", type=int, dest="n_windows", help="CV windows")
-
+    parser.add_argument(
+        "--n-series-debug",
+        type=int,
+        dest="n_series_debug",
+        help="Number of series (0 for all, default defined in Config)"
+    )
+    parser.add_argument(
+        "--n-trials",
+        type=int,
+        dest="n_trials",
+        help="Optuna trials"
+    )
+    parser.add_argument(
+        "--n-windows",
+        type=int,
+        dest="n_windows",
+        help="CV windows. Defaults to 5."
+    )
+    parser.add_argument(
+        '--skip-training',
+        action='store_true',
+        help='If set, attempts to load a pre-trained model instead of training from scratch.'
+    )
     return parser.parse_args()
 
 

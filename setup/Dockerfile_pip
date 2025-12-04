@@ -1,0 +1,62 @@
+# --- pull official base image --- #
+ARG BASEIMAGE=python:3.10-slim
+
+FROM $BASEIMAGE as base
+
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+ENV JUPYTER_PORT 8989
+
+# ------ Set up workspace -------- #
+RUN true && apt-get update
+RUN apt update
+RUN apt-get install -y curl
+RUN apt-get update
+RUN apt-get install -y git
+RUN apt-get install -y gcc
+
+
+## --- Install python --- #
+RUN true \
+    && python -m pip install --upgrade pip \
+    && python -m pip install --upgrade pip setuptools \
+    && python -m pip install \
+      black>=25.11.0 \
+      datasetsforecast>=1.0.0 \
+      ipykernel>=7.1.0 \
+      isort>=7.0.0 \
+      jupyterlab>=4.5.0 \
+      jupyterlab-code-formatter>=3.0.2 \
+      jupyterlab-rise>=0.43.1 \
+      lightgbm>=4.6.0 \
+      matplotlib>=3.10.7 \
+      mlforecast>=1.0.2 \
+      numba>=0.62.1 \
+      numpy>=2.2.6 \
+      pandas>=2.3.3 \
+      plotly>=6.5.0 \
+      scikit-learn>=1.7.2 \
+      tqdm>=4.67.1 \
+      window-ops>=0.0.15 \
+      xgboost>=3.1.2 \
+      optuna \
+      statsforecast==2.0.3
+
+# --- pull official base image --- #
+RUN mkdir /workspace
+
+# --- Make temp file for source code --- #
+COPY ./src /workspace/src
+COPY ./data /workspace/data
+COPY ./notebooks /workspace/notebooks
+
+# --- Set Workspace --- #
+WORKDIR "/workspace"
+
+EXPOSE 8989
+
+# --- Start Jupyter Notebook --- #
+#CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8989", "--no-browser", "--NotebookApp.token=''", "--NotebookApp.password=''", "--allow-root"]
+
+# --- Run the python script --- #
+ENTRYPOINT ["python", "./src/main.py"]

@@ -1,5 +1,8 @@
 import logging
 import pickle
+from pathlib import Path
+from typing import Literal, Optional
+import json
 
 import lightgbm as lgb
 import optuna
@@ -9,6 +12,7 @@ from mlforecast import MLForecast
 from mlforecast.auto import AutoMLForecast, AutoLightGBM
 from mlforecast.lag_transforms import RollingMean, ExponentiallyWeightedMean
 from mlforecast.target_transforms import Differences
+from sklearn.pipeline import Pipeline
 
 from m4_forecasting import LOGGER_NAME
 from m4_forecasting.config import PipelineConfig
@@ -67,57 +71,20 @@ class ForecastingEngine:
                                      file paths, and time series settings.
         """
         self.config = config
-        self.model = None
+        self.train_model: Optional[AutoMLForecast] = None
+        self.prod_model: Optional[MLForecast] = None
 
-    def get_best_params(self) -> dict:
+    def _build_mlforecast_from_params(self, params: dict) -> MLForecast:
         """
-        Retrieves the optimal hyperparameters identified during the optimization phase.
-
-        Returns:
-            dict: A dictionary of best parameters (e.g., {'learning_rate': 0.01, 'lag_type': 'short'}).
-
-        Raises:
-            ValueError: If the `train()` method has not been executed yet.
+        Helper method to construct a concrete MLForecast pipeline from a parameter dictionary.
         """
-        if not self.model or not hasattr(self.model, 'results_'):
-            raise ValueError("Run train() first.")
-
-        # We assume 'lgb' is the model name we used
-        return self.model.results_['lgb'].best_params
-
-    def train_production_model(self, full_df: pd.DataFrame) -> MLForecast:
-        """
-        Trains the final production model using the best parameters found during optimization
-        on the entire available dataset (Train + Test).
-
-        This reconstruction step is necessary because `AutoMLForecast` splits data for validation,
-        whereas the production model must learn from the most recent data points available.
-
-        Args:
-            full_df (pd.DataFrame): The complete historical dataset (ID, Date, Target).
-
-        Returns:
-            MLForecast: A fitted `MLForecast` object ready for inference.
-        """
-        logger.info("--- Starting Production Retraining (Full Dataset) ---")
-
-        # 1. Get the Best Params
-        params = self.get_best_params()
-        logger.info(f"Best Params Found: {params}")
-
-        # 2. Reconstruct Model Params (LightGBM)
-        # We filter out params that belong to feature engineering (lag_type, roll_window, etc)
-        # to leave only the LightGBM specific ones.
+        # 1. Separate LightGBM params from Feature Engineering params
         lgb_params = {
             k: v for k, v in params.items()
             if k not in ['lag_type', 'roll_window', 'ewm_alpha']
         }
 
-        # Instantiate the final regressor
-        final_model = lgb.LGBMRegressor(**lgb_params, verbosity=-1)
-
-        # 3. Reconstruct Feature Engineering Params
-        # We must replicate the logic from _feature_search_space
+        # 2. Reconstruct Transforms
         if params['lag_type'] == 'short':
             lags = [1, 24]
         else:
@@ -128,21 +95,46 @@ class ForecastingEngine:
             24: [ExponentiallyWeightedMean(alpha=params['ewm_alpha'])],
         }
 
-        # 4. Create the Production Pipeline
-        fcst = MLForecast(
-            models=[final_model],
+        # 3. Create Object
+        return MLForecast(
+            models={'lgb': lgb.LGBMRegressor(**lgb_params, verbosity=-1)},
             freq=self.config.freq,
             lags=lags,
-            lag_transforms=lag_transforms,
+            lag_transforms=lag_transforms,  # type: ignore
             date_features=['hour', 'dayofweek'],
             target_transforms=[Differences([24])]
         )
 
-        # 5. Fit on ALL data
-        fcst.fit(full_df)
-        logger.info("Production model trained on full history.")
+    def train_production_model(self, full_df: pd.DataFrame) -> MLForecast:
+        """
+        Retrains the model on the full dataset.
+        It handles two scenarios:
+        1. We just ran optimization (self.train_model is AutoMLForecast) -> Build new from params.
+        2. We loaded a saved model (self.train_model is MLForecast) -> Just refit it.
+        """
+        logger.info("--- Starting Production Retraining (Full Dataset) ---")
 
-        return fcst
+        # SCENARIO 1: We loaded a pre-trained MLForecast pipeline from disk
+        if isinstance(self.train_model, MLForecast):
+            logger.info("Using loaded pipeline configuration...")
+            self.prod_model = self.train_model
+            # .fit() on MLForecast allows retraining on new data while keeping config
+            self.prod_model.fit(full_df)
+
+        # SCENARIO 2: We just finished an AutoML session
+        elif isinstance(self.train_model, AutoMLForecast):
+            logger.info("Reconstructing pipeline from AutoML best parameters...")
+            best_params = self.train_model.results_['lgb'].best_params
+
+            # Use helper to build the object
+            self.prod_model = self._build_mlforecast_from_params(best_params)
+            self.prod_model.fit(full_df)
+
+        else:
+            raise ValueError("No valid model found to retrain. Run train() or load_train_model() first.")
+
+        logger.info("Production model trained on full history.")
+        return self.prod_model
 
     @staticmethod
     def _feature_search_space(trial: optuna.Trial) -> dict:
@@ -216,14 +208,14 @@ class ForecastingEngine:
             'lgb': AutoLightGBM(config=self._model_search_space)
         }
 
-        self.model = AutoMLForecast(
+        self.train_model = AutoMLForecast(
             models=models,
             freq=self.config.freq,
             init_config=self._feature_search_space,  # This configures the features (lags)
             num_threads=self.config.num_threads,
         )
 
-        self.model.fit(
+        self.train_model.fit(
             train_df,
             n_windows=self.config.n_windows,
             h=self.config.horizon,
@@ -232,7 +224,7 @@ class ForecastingEngine:
         )
         logger.info("AutoML Optimization and Training finished.")
 
-    def predict(self, horizon: int = None) -> pd.DataFrame:
+    def predict(self, horizon: int = None, **kwargs) -> pd.DataFrame:
         """
         Generates forecasts using the trained model.
 
@@ -244,7 +236,8 @@ class ForecastingEngine:
             pd.DataFrame: DataFrame containing IDs, dates, and predicted values.
         """
         h = horizon if horizon else self.config.horizon
-        return self.model.predict(h=h)
+        logger.info(f"Generating predictions for horizon: {h}.")
+        return self.train_model.predict(h=h, **kwargs)
 
     def visualize_optimization(self):
         """
@@ -257,7 +250,7 @@ class ForecastingEngine:
 
         Outputs are saved to `{config.model_dir}/plots`.
         """
-        if not self.model or not hasattr(self.model, 'results_'):
+        if not self.train_model or not hasattr(self.train_model, 'results_'):
             logger.warning("No optimization results found. Did you run train()?")
             return
 
@@ -265,8 +258,8 @@ class ForecastingEngine:
         plots_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Generating optimization plots in {plots_dir}...")
 
-        logger.info(f"Available params: {self.model.results_['lgb'].best_trial.params.keys()}")
-        for model_name, study in self.model.results_.items():
+        logger.info(f"Available params: {self.train_model.results_['lgb'].best_trial.params.keys()}")
+        for model_name, study in self.train_model.results_.items():
             try:
                 # Standard Plots
                 ov.plot_optimization_history(study).write_html(plots_dir / f"{model_name}_history.html")
@@ -276,7 +269,6 @@ class ForecastingEngine:
                 try:
                     target_params = ['num_leaves', 'n_estimators']
 
-                    # --- FIX START ---
                     # Ensure trials exist
                     if len(study.trials) == 0:
                         logger.warning(f"No trials found for {model_name}, skipping heatmap.")
@@ -294,7 +286,7 @@ class ForecastingEngine:
                     else:
                         logger.warning(
                             f"Params {target_params} not found in study. Available: {list(available_params)}")
-                    # --- FIX END ---
+
 
                 except Exception as e:
                     logger.warning(f"Failed to generate heatmap for {model_name}: {e}")
@@ -302,12 +294,51 @@ class ForecastingEngine:
             except Exception as e:
                 logger.error(f"Failed to generate generic plots for {model_name}: {e}")
 
-    def save(self):
+    def save(self, model: Literal['train', 'prod'] = 'train') -> None:
         """
         Serializes the best performing model artifact to the path specified in the config.
         """
-        # ... (Save logic remains the same) ...
-        best_artifact = self.model.models_['lgb']
-        with open(self.config.model_path, 'wb') as f:
-            pickle.dump(best_artifact, f)
-        logger.info(f"Best model saved to: {self.config.model_path}")
+        # define the object to save based on the name
+        model_obj = getattr(self, f'{model}_model', None)
+
+        # define the output dir based on the name
+        model_dir_dict = {
+            'train': self.config.training_model_path,
+            'prod': self.config.production_model_path
+        }
+        model_dir: Path = model_dir_dict[model]
+
+        # save the model
+        best_artifact = model_obj.models_['lgb']
+        with open(model_dir, 'wb') as f:
+            pickle.dump(best_artifact, f)  # type: ignore
+        logger.info(f"Best {model} model saved to: {model_dir}")
+
+        # save best hyperparameters
+        if model == 'train':
+            params: dict = self.train_model.results_['lgb'].best_params
+            json_path: Path = model_dir.with_suffix('.json')
+            try:
+                with open(json_path / 'params.json', 'w') as f:
+                    json.dump(params, f, indent=4)
+                    logger.info(f"Hyperparameters saved to: {str(json_path)}")
+            except Exception as e:
+                logger.error(f"Failed to save hyperparameters: {e}")
+                raise e
+
+
+    def load_train_model(self) -> None:
+        """
+        Loads a serialized MLForecast object from disk and update the corresponding attribute.
+        Raises FileNotFoundError if the file doesn't exist.
+        """
+        # Construct the filename (match your save method's naming convention)
+        filepath: Path = self.config.training_model_path
+
+        if not filepath.is_file():
+            raise FileNotFoundError(f"No model found at {str(filepath)}")
+
+        # Load the model
+        logger.info(f"Loading model from {filepath}...")
+        with open(filepath, 'rb') as f:
+            self.train_model = pickle.load(f)

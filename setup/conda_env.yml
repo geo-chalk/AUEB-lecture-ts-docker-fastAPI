@@ -26,3 +26,6 @@ dependencies:
       - xgboost>=3.1.2
       - optuna
       - statsforecast==2.0.3
+      - uvicorn[standard]>=0.27.0
+      - pydantic>=2.6.0
+      - fastapi>=0.109.0

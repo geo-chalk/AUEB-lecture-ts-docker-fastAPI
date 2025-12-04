@@ -1,10 +1,11 @@
+import logging
 from typing import Tuple
 
 import pandas as pd
 from datasetsforecast.m4 import M4
-from m4_forecasting.config import PipelineConfig
+
 from m4_forecasting import LOGGER_NAME
-import logging
+from m4_forecasting.config import PipelineConfig
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -16,8 +17,12 @@ class M4DataLoader:
         """Downloads and loads the M4 data."""
         logger.info(f"Loading M4 data (Group: {self.config.group})...")
 
-        # load() returns a tuple (df, group_info, ...), we just need df
-        df, *_ = M4.load(directory=str(self.config.data_dir), group=self.config.group)
+        if self.config.group == 'Hourly':
+            # load() returns a tuple (df, group_info, ...), we just need df
+            df, *_ = M4.load(directory=str(self.config.data_dir), group=self.config.group)
+        else:
+            logger.error(f"Unknown group: {self.config.group}. Only Hourly data is supported.")
+            raise NotImplementedError("Only Hourly data is supported.")
 
         # --- FIX START ---
         # Convert 'ds' from object/int to datetime to allow frequency operations

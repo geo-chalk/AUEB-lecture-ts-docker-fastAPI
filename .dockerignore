@@ -1,0 +1,20 @@
+# Git
+.git
+.gitignore
+
+# Python / Local artifacts
+__pycache__
+*.pyc
+.venv
+.env
+
+# Data & Models
+# In production, data is usually mounted via volume, not baked into the image
+# Since this is for educational purposes we'll ignore that
+#data/
+#models/
+#plots/
+
+# IDE settings
+.vscode
+.idea

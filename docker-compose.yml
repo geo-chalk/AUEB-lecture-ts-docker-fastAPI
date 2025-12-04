@@ -1,17 +1,21 @@
 version: '3.8'
+
 services:
-  aueb_demo:
+  m4-forecaster:
     build:
       context: .
-      dockerfile: setup/Dockerfile_Dev
-    volumes:
-      - ./data:/app/data
-      - ./models:/app/models
-      - ./notebooks:/app/notebooks
-      - ./src:/app/src
-      - ./pyproject.toml:/app/pyproject.toml
-      - ./uv.lock:/app/uv.lock
+      dockerfile: setup/Dockerfile
+    image: m4-forecaster:latest
     ports:
-      - "8989:8989"
-      - "8081:8081"
-    command: "tail -F anything"
+      - "8000:8000"
+#      - "8082:8082"
+    volumes:
+      # Mount data so the container can read inputs
+      - ./data:/app/data
+      # Mount models so the container can save the .pkl file to your host
+      - ./models:/app/models
+      # Optional: Mount plots if you want to see the html files
+      - ./models/plots:/app/models/plots
+    # Default command (can be overridden)
+#    command:
+#      "--n-trials 10 --n-series-debug 2"

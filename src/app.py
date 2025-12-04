@@ -98,7 +98,7 @@ async def health_check():
     )
 
 
-@app.post("/predict", response_model=PredictionResponse, tags=["Inference"])
+@app.post("/predict", response_model=None, tags=["Inference"])
 async def generate_forecast(
         request: PredictionRequest,
 ):
@@ -123,14 +123,13 @@ async def generate_forecast(
         logger.info(f"Generating predictions for ids: {ids}, and horizon: {h}")
         # 3. Generate Predictions
         preds_df = engine.predict(horizon=h, ids=ids)
-        logger.info(preds_df)
+        # logger.info(preds_df)
 
         # =======================
         # Format Response
         # =======================
-
         # Convert DataFrame to the List[PredictionResponse] format
-        results = []
+        results: List[PredictionResponse] = []
 
         # Group by unique_id to format the output
         for uid, group in preds_df.groupby('unique_id'):
